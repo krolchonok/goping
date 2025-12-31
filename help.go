@@ -17,6 +17,10 @@ var usageLocales = map[string]usageLocale{
 	"en": {
 		usageLine: "Usage: goping [options] target [target...]",
 		optionLines: []string{
+			"Examples:",
+			"  goping -a -q -P 8.8.8.8 1.1.1.1",
+			"  goping -a -q -P -g 192.168.1.1/24",
+			"",
 			"  -4, --ipv4           Use IPv4 only",
 			"  -6, --ipv6           Use IPv6 only",
 			"  -a, --alive          Show alive hosts",
@@ -57,6 +61,10 @@ var usageLocales = map[string]usageLocale{
 	"ru": {
 		usageLine: "\u0418\u0441\u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u043d\u0438\u0435: goping [\u043e\u043f\u0446\u0438\u0438] \u0446\u0435\u043b\u044c [\u0446\u0435\u043b\u044c...]",
 		optionLines: []string{
+			"\u041f\u0440\u0438\u043c\u0435\u0440\u044b:",
+			"  goping -a -q -P 8.8.8.8 1.1.1.1",
+			"  goping -a -q -P -g 192.168.1.1/24",
+			"",
 			"  -4, --ipv4           \u0418\u0441\u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u044c \u0442\u043e\u043b\u044c\u043a\u043e IPv4",
 			"  -6, --ipv6           \u0418\u0441\u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u044c \u0442\u043e\u043b\u044c\u043a\u043e IPv6",
 			"  -a, --alive          \u041f\u043e\u043a\u0430\u0437\u044b\u0432\u0430\u0442\u044c \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b\u0435 \u0445\u043e\u0441\u0442\u044b",
