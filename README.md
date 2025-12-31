@@ -92,4 +92,4 @@ When contributing:
 
 ## License
 
-This project currently ships without an explicit license. Please open an issue if you need formal licensing information.
+Released under the [MIT License](LICENSE).
