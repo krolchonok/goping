@@ -177,7 +177,7 @@ func needsValue(name string) bool {
 	switch name {
 	case "size", "backoff", "count", "vcount", "timestamp-format", "file", "ttl", "interval",
 		"iface", "fwmark", "period", "squiet", "retry", "src", "timeout",
-		"reachable", "fast-reachable", "seqmap-timeout", "tcp-port":
+		"reachable", "fast-reachable", "seqmap-timeout", "tcp-port", "lang", "locale":
 		return true
 	}
 	return false
@@ -286,6 +286,10 @@ func applyLongOption(opts *options, name, val string) error {
 		opts.printTTL = true
 	case "print-tos":
 		opts.printTOS = true
+	case "lang":
+		return setLocaleOption(opts, val)
+	case "locale":
+		return setLocaleOption(opts, val)
 	case "tcp-probe":
 		opts.tcpProbe = true
 	case "tcp-port":
@@ -391,7 +395,15 @@ func parseShortBundle(opts *options, args []string, idx *int) error {
 		case 'J':
 			opts.json = true
 		case 'l':
-			opts.loop = true
+			if pos == len(arg)-1 {
+				if locale := consumeLocaleArg(args, idx); locale != "" {
+					opts.locale = locale
+				} else {
+					opts.loop = true
+				}
+			} else {
+				opts.loop = true
+			}
 		case 'L':
 			opts.trafficStats = true
 		case 'm':
@@ -510,6 +522,22 @@ func parseShortBundle(opts *options, args []string, idx *int) error {
 	return nil
 }
 
+func consumeLocaleArg(args []string, idx *int) string {
+	if *idx+1 >= len(args) {
+		return ""
+	}
+	next := args[*idx+1]
+	if next == "" || strings.HasPrefix(next, "-") {
+		return ""
+	}
+	locale := normalizeLocale(next)
+	if locale == "" {
+		return ""
+	}
+	*idx++
+	return locale
+}
+
 func takeValue(current string, args []string, idx *int, pos int) (string, int, error) {
 	if pos+1 < len(current) {
 		return current[pos+1:], len(current) - 1, nil
@@ -562,6 +590,18 @@ func setDuration(val string, dst *time.Duration) error {
 		return err
 	}
 	*dst = time.Duration(ms * float64(time.Millisecond))
+	return nil
+}
+
+func setLocaleOption(opts *options, val string) error {
+	if val == "" {
+		return errors.New("missing value")
+	}
+	locale := normalizeLocale(val)
+	if locale == "" {
+		return fmt.Errorf("unsupported locale %s", val)
+	}
+	opts.locale = locale
 	return nil
 }
 

@@ -208,7 +208,7 @@ func resolveOne(target string, opts *options) ([]*host, error) {
 				h.zone = opts.iface
 			}
 		}
-		h.display = formatDisplay(target, addr, opts)
+		h.display, h.reverseDNS = formatDisplay(target, addr, opts)
 		if opts.netdata {
 			h.netdataName = sanitizeMetricName(target)
 		}
@@ -217,22 +217,35 @@ func resolveOne(target string, opts *options) ([]*host, error) {
 	return hosts, nil
 }
 
-func formatDisplay(name string, addr netip.Addr, opts *options) string {
+func formatDisplay(name string, addr netip.Addr, opts *options) (string, string) {
+	ip := addr.String()
+	reverse := ""
+	if opts.reverseLookup || (opts.nameLookup && net.ParseIP(name) != nil) {
+		if host, err := net.LookupAddr(ip); err == nil && len(host) > 0 {
+			reverse = strings.TrimSuffix(host[0], ".")
+		}
+	}
 	switch {
 	case opts.showAddr:
-		return addr.String()
+		if reverse != "" {
+			return fmt.Sprintf("%s (%s)", ip, reverse), reverse
+		}
+		return ip, reverse
 	case opts.reverseLookup:
-		if host, err := net.LookupAddr(addr.String()); err == nil && len(host) > 0 {
-			return host[0]
+		if reverse != "" {
+			return fmt.Sprintf("%s (%s)", ip, reverse), reverse
 		}
-		return addr.String()
+		return ip, reverse
 	case opts.nameLookup && net.ParseIP(name) != nil:
-		if host, err := net.LookupAddr(addr.String()); err == nil && len(host) > 0 {
-			return host[0]
+		if reverse != "" {
+			return reverse, reverse
 		}
-		return name
+		return name, reverse
 	default:
-		return name
+		if reverse != "" && opts.reverseLookup {
+			return fmt.Sprintf("%s (%s)", ip, reverse), reverse
+		}
+		return name, reverse
 	}
 }
 
