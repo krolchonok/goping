@@ -113,7 +113,7 @@ jobs:
             git log ${PREV}..HEAD --pretty=format:"- %s (%h)" >> release-notes.md
           fi
           echo "" >> release-notes.md
-          echo "Первый релиз / First public release" >> release-notes.md
+          echo "Initial public release" >> release-notes.md
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
