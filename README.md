@@ -1,5 +1,7 @@
 # goping
 
+English | [Русский](README_RU.md)
+
 `goping` is a fast, parallel ICMP scanner inspired by `fping`, rewritten in Go. It efficiently probes thousands of IPv4 or IPv6 hosts, offers detailed per-host statistics, and can export results as human-readable text, JSON, or Netdata-compatible metrics.
 
 ## Features
