@@ -16,28 +16,29 @@ import (
 )
 
 type app struct {
-	opts            *options
-	hosts           []*host
-	socket          *socketManager
-	rateLimiter     *rate.Limiter
-	startTime       time.Time
-	stats           globalStats
-	reportMu        sync.Mutex
-	statsMu         sync.Mutex
-	cancel          context.CancelFunc
-	printMu         sync.Mutex
-	progressMu      sync.Mutex
-	ppsMu           sync.Mutex
-	netdataSent     bool
-	jsonEncoder     *json.Encoder
-	progressActive  bool
-	progressTotal   int
-	progressDone    int
-	progressLastLen int
-	ppsSampleSent   int
-	ppsSampleTime   time.Time
-	currentPps      float64
-	maxPps          float64
+	opts               *options
+	hosts              []*host
+	socket             *socketManager
+	rateLimiter        *rate.Limiter
+	startTime          time.Time
+	stats              globalStats
+	reportMu           sync.Mutex
+	statsMu            sync.Mutex
+	cancel             context.CancelFunc
+	printMu            sync.Mutex
+	progressMu         sync.Mutex
+	ppsMu              sync.Mutex
+	netdataSent        bool
+	jsonEncoder        *json.Encoder
+	progressActive     bool
+	progressTotal      int
+	progressDone       int
+	progressLastLen    int
+	progressLastRender time.Time
+	ppsSampleSent      int
+	ppsSampleTime      time.Time
+	currentPps         float64
+	maxPps             float64
 }
 
 type host struct {
@@ -58,11 +59,12 @@ type host struct {
 }
 
 const (
-	progressBarWidth     = 30
-	packetOverheadBytes  = 28
-	ipv4HeaderBytes      = 20
-	ipv6HeaderBytes      = 40
-	ppsMinSampleInterval = 200 * time.Millisecond
+	progressBarWidth          = 30
+	packetOverheadBytes       = 28
+	ipv4HeaderBytes           = 20
+	ipv6HeaderBytes           = 40
+	ppsMinSampleInterval      = 200 * time.Millisecond
+	progressMinUpdateInterval = 50 * time.Millisecond
 )
 
 type reply struct {
@@ -180,7 +182,7 @@ func (a *app) initProgressBar() {
 	a.progressTotal = len(a.hosts)
 	a.progressDone = 0
 	a.progressLastLen = 0
-	a.renderProgressLocked()
+	a.renderProgressLocked(true)
 	a.progressMu.Unlock()
 }
 
@@ -197,12 +199,18 @@ func (a *app) hostCompleted(h *host) {
 		return
 	}
 	a.progressDone++
-	a.renderProgressLocked()
+	force := a.progressDone >= a.progressTotal
+	a.renderProgressLocked(force)
 }
 
-func (a *app) renderProgressLocked() {
+func (a *app) renderProgressLocked(force bool) {
 	if !a.progressActive || a.progressTotal <= 0 {
 		return
+	}
+	if !force && !a.progressLastRender.IsZero() {
+		if time.Since(a.progressLastRender) < progressMinUpdateInterval {
+			return
+		}
 	}
 	pps := a.currentPpsValue()
 	if pps == 0 {
@@ -227,10 +235,12 @@ func (a *app) renderProgressLocked() {
 	}
 	a.progressLastLen = len(line)
 	fmt.Fprintf(os.Stderr, "\r%s", line)
+	a.progressLastRender = time.Now()
 	if a.progressDone >= a.progressTotal {
 		fmt.Fprintln(os.Stderr)
 		a.progressActive = false
 		a.progressLastLen = 0
+		a.progressLastRender = time.Time{}
 	}
 }
 
@@ -260,7 +270,7 @@ func (a *app) resumeProgressAfterPrint() {
 	}
 	a.progressMu.Lock()
 	if a.progressActive {
-		a.renderProgressLocked()
+		a.renderProgressLocked(true)
 	}
 	a.progressMu.Unlock()
 }
@@ -300,7 +310,7 @@ func (a *app) stderrf(format string, args ...interface{}) {
 	fmt.Fprintf(os.Stderr, format, args...)
 	a.progressMu.Lock()
 	if a.progressActive {
-		a.renderProgressLocked()
+		a.renderProgressLocked(true)
 	}
 	a.progressMu.Unlock()
 }
