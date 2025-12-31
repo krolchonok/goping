@@ -75,6 +75,7 @@ type options struct {
 	useGenerator    bool
 	targetFileIsStd bool
 	outFile         string
+	locale          string
 }
 
 type generateSpec struct {
@@ -95,6 +96,7 @@ func defaultOptions() *options {
 		timeout:         defaultTimeout,
 		seqmapTimeout:   defaultSeqmapTimeout,
 		timestampFormat: "ctime",
+		locale:          detectSystemLocale(),
 	}
 }
 

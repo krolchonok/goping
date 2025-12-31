@@ -227,9 +227,37 @@ func (sm *socketManager) send(h *host, seq int, opts *options) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	addr := &net.IPAddr{IP: h.addr.AsSlice()}
+	ip := h.addr.AsSlice()
+	var addr net.Addr
+	if h.ipVersion == 4 {
+		if sm.ipv4Net == "udp4" {
+			addr = &net.UDPAddr{IP: ip}
+		} else {
+			ipAddr := &net.IPAddr{IP: ip}
+			addr = ipAddr
+		}
+	} else {
+		if sm.ipv6Net == "udp6" {
+			udpAddr := &net.UDPAddr{IP: ip}
+			if h.zone != "" {
+				udpAddr.Zone = h.zone
+			}
+			addr = udpAddr
+		} else {
+			ipAddr := &net.IPAddr{IP: ip}
+			if h.zone != "" {
+				ipAddr.Zone = h.zone
+			}
+			addr = ipAddr
+		}
+	}
 	if h.zone != "" {
-		addr.Zone = h.zone
+		switch a := addr.(type) {
+		case *net.IPAddr:
+			a.Zone = h.zone
+		case *net.UDPAddr:
+			a.Zone = h.zone
+		}
 	}
 	n, err := conn.WriteTo(b, addr)
 	return n, err
