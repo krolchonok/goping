@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"os"
@@ -151,6 +152,11 @@ func (a *app) loadTargets(targets []string) error {
 			return err
 		}
 		targets = append(targets, genTargets...)
+	}
+	var err error
+	targets, err = expandInlineCIDRs(targets, a.opts)
+	if err != nil {
+		return err
 	}
 	if len(targets) == 0 {
 		return errors.New("no targets provided")
@@ -439,9 +445,16 @@ func (a *app) printPpsSummary() {
 			return
 		}
 		mbps := a.mbpsForRate(peak)
-		a.withStdout(func() {
-			fmt.Printf("Peak throughput: %.1f pps (%.2f Mbps)\n", peak, mbps)
-		})
+		printPeak := func(out io.Writer) {
+			fmt.Fprintf(out, "Peak throughput: %.1f pps (%.2f Mbps)\n", peak, mbps)
+		}
+		if a.opts.quiet {
+			printPeak(os.Stderr)
+		} else {
+			a.withStdout(func() {
+				printPeak(os.Stdout)
+			})
+		}
 		return
 	}
 
@@ -470,16 +483,23 @@ func (a *app) printPpsSummary() {
 		return
 	}
 
-	a.withStdout(func() {
+	printFinal := func(out io.Writer) {
 		if sentPackets > 0 || recvPackets > 0 {
-			fmt.Printf("Packets: sent %d, recv %d (runtime %.2fs)\n", sentPackets, recvPackets, runtime.Seconds())
-			fmt.Printf("Average throughput: sent %.1f pps (%.2f Mbps), recv %.1f pps (%.2f Mbps)\n", sentPps, sentMbps, recvPps, recvMbps)
-			fmt.Printf("Average network load: %.2f Mbps combined (%.1f total pps)\n", totalMbps, totalPps)
+			fmt.Fprintf(out, "Packets: sent %d, recv %d (runtime %.2fs)\n", sentPackets, recvPackets, runtime.Seconds())
+			fmt.Fprintf(out, "Average throughput: sent %.1f pps (%.2f Mbps), recv %.1f pps (%.2f Mbps)\n", sentPps, sentMbps, recvPps, recvMbps)
+			fmt.Fprintf(out, "Average network load: %.2f Mbps combined (%.1f total pps)\n", totalMbps, totalPps)
 		}
 		if peak > 0 {
-			fmt.Printf("Peak throughput: %.1f pps (%.2f Mbps)\n", peak, peakMbps)
+			fmt.Fprintf(out, "Peak throughput: %.1f pps (%.2f Mbps)\n", peak, peakMbps)
 		}
-	})
+	}
+	if a.opts.quiet {
+		printFinal(os.Stderr)
+	} else {
+		a.withStdout(func() {
+			printFinal(os.Stdout)
+		})
+	}
 }
 
 func (a *app) averageRecvPacketsPerSecond() float64 {
@@ -534,6 +554,28 @@ func isConnRefused(err error) bool {
 		return false
 	}
 	return errors.Is(err, syscall.ECONNREFUSED)
+}
+
+func expandInlineCIDRs(targets []string, opts *options) ([]string, error) {
+	if len(targets) == 0 {
+		return targets, nil
+	}
+	expanded := make([]string, 0, len(targets))
+	for _, t := range targets {
+		if strings.Contains(t, "/") {
+			if prefix, err := netip.ParsePrefix(t); err == nil {
+				spec := &generateSpec{cidr: &prefix}
+				gen, err := generateFromSpec(spec, opts.ipv4Only, opts.ipv6Only)
+				if err != nil {
+					return nil, err
+				}
+				expanded = append(expanded, gen...)
+				continue
+			}
+		}
+		expanded = append(expanded, t)
+	}
+	return expanded, nil
 }
 
 func (a *app) printIntervalStats() {
