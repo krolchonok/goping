@@ -8,8 +8,10 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"golang.org/x/time/rate"
@@ -125,11 +127,13 @@ func newApp(opts *options) (*app, error) {
 	if opts.json {
 		a.jsonEncoder = json.NewEncoder(os.Stdout)
 	}
-	socket, err := newSocketManager(opts)
-	if err != nil {
-		return nil, err
+	if !opts.tcpProbe {
+		socket, err := newSocketManager(opts)
+		if err != nil {
+			return nil, err
+		}
+		a.socket = socket
 	}
-	a.socket = socket
 	return a, nil
 }
 
@@ -162,7 +166,9 @@ func (a *app) loadTargets(targets []string) error {
 		return fmt.Errorf("too many targets (%d), limit 65535", len(hostEntries))
 	}
 	a.hosts = hostEntries
-	a.socket.assignIDs(a.hosts)
+	if !a.opts.tcpProbe && a.socket != nil {
+		a.socket.assignIDs(a.hosts)
+	}
 	return nil
 }
 
@@ -320,8 +326,10 @@ func (a *app) run(ctx context.Context) error {
 	a.cancel = cancel
 	defer cancel()
 
-	if err := a.socket.start(ctx); err != nil {
-		return err
+	if !a.opts.tcpProbe {
+		if err := a.socket.start(ctx); err != nil {
+			return err
+		}
 	}
 
 	var wg sync.WaitGroup
@@ -329,7 +337,11 @@ func (a *app) run(ctx context.Context) error {
 		wg.Add(1)
 		go func(h *host) {
 			defer wg.Done()
-			h.run(ctx, a)
+			if a.opts.tcpProbe {
+				h.runTCP(ctx, a)
+			} else {
+				h.run(ctx, a)
+			}
 		}(h)
 	}
 
@@ -509,6 +521,21 @@ func ipHeaderBytesFor(version int) int {
 	return ipv4HeaderBytes
 }
 
+func (h *host) tcpDialAddress(port int) string {
+	host := h.addr.String()
+	if h.addr.Is6() && h.zone != "" {
+		host = fmt.Sprintf("%s%%%s", host, h.zone)
+	}
+	return net.JoinHostPort(host, strconv.Itoa(port))
+}
+
+func isConnRefused(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, syscall.ECONNREFUSED)
+}
+
 func (a *app) printIntervalStats() {
 	a.reportMu.Lock()
 	defer a.reportMu.Unlock()
@@ -633,6 +660,76 @@ func (h *host) run(ctx context.Context, a *app) {
 	}
 }
 
+func (h *host) runTCP(ctx context.Context, a *app) {
+	defer a.hostCompleted(h)
+	attempt := 0
+	for {
+		if err := a.waitInterval(ctx); err != nil {
+			return
+		}
+		h.recordTCPSend()
+		a.incSent(0)
+		start := time.Now()
+		address := h.tcpDialAddress(a.opts.tcpPort)
+		dialer := &net.Dialer{
+			Timeout: a.opts.timeout,
+		}
+		conn, err := dialer.DialContext(ctx, "tcp", address)
+		success := false
+		refused := false
+		if err == nil {
+			success = true
+		} else if isConnRefused(err) {
+			success = true
+			refused = true
+		}
+		if success {
+			if conn != nil {
+				conn.Close()
+			}
+			rtt := time.Since(start)
+			h.recordTCPSuccess(a, attempt, rtt, a.opts.tcpPort, refused)
+			a.incRecv(0)
+			if !h.isAlive() {
+				a.markAlive()
+			}
+			if !a.opts.loop && a.opts.count == 0 {
+				return
+			}
+		} else {
+			h.recordTCPFailure(a, attempt, a.opts.tcpPort, err)
+			a.incTimeout()
+			if a.opts.count == 0 && attempt >= a.opts.retry {
+				a.markUnreachable()
+				return
+			}
+		}
+
+		attempt++
+		if h.shouldStop(attempt, a.opts) {
+			if a.opts.loop {
+				attempt = 0
+				if !a.opts.cumulativeStats {
+					h.resetIntervalStats()
+				}
+				continue
+			}
+			if !h.isAlive() {
+				a.markUnreachable()
+			}
+			return
+		}
+
+		if a.opts.perHostInterval > 0 {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(a.opts.perHostInterval):
+			}
+		}
+	}
+}
+
 func (h *host) shouldStop(attempt int, opts *options) bool {
 	if opts.count > 0 {
 		return attempt >= opts.count
@@ -748,6 +845,87 @@ func (h *host) recordTimeout(a *app, idx int) {
 			fmt.Printf("%s ", prefix)
 		}
 		fmt.Printf("%s : [%d], timed out\n", h.display, idx)
+	})
+}
+
+func (h *host) recordTCPSend() {
+	h.mu.Lock()
+	h.stats.sent++
+	h.stats.intervalSent++
+	h.mu.Unlock()
+}
+
+func (h *host) recordTCPSuccess(a *app, idx int, rtt time.Duration, port int, refused bool) {
+	h.mu.Lock()
+	h.stats.recv++
+	h.stats.intervalRecv++
+	h.stats.totalRTT += rtt
+	h.stats.intervalTotal += rtt
+	if h.stats.minRTT == 0 || rtt < h.stats.minRTT {
+		h.stats.minRTT = rtt
+	}
+	if rtt > h.stats.maxRTT {
+		h.stats.maxRTT = rtt
+	}
+	if h.stats.intervalMin == 0 || rtt < h.stats.intervalMin {
+		h.stats.intervalMin = rtt
+	}
+	if rtt > h.stats.intervalMax {
+		h.stats.intervalMax = rtt
+	}
+	if !h.stats.alive {
+		h.stats.alive = true
+	}
+	h.mu.Unlock()
+
+	status := "open"
+	if refused {
+		status = "closed"
+	}
+	if h.opts.json {
+		payload := map[string]interface{}{
+			"host":    h.display,
+			"port":    port,
+			"status":  status,
+			"rtt_ms":  float64(rtt.Microseconds()) / 1000.0,
+			"tcp_seq": idx,
+		}
+		a.emitJSON("tcp", payload)
+		return
+	}
+	if h.opts.quiet {
+		if h.opts.showAlive {
+			a.withStdout(func() {
+				fmt.Println(h.display)
+			})
+		}
+		return
+	}
+	a.withStdout(func() {
+		fmt.Printf("%s : tcp port %d %s (%.2f ms)\n",
+			h.display, port, status, float64(rtt.Microseconds())/1000.0)
+	})
+}
+
+func (h *host) recordTCPFailure(a *app, idx int, port int, err error) {
+	h.mu.Lock()
+	h.stats.timeouts++
+	h.mu.Unlock()
+	if h.opts.json {
+		payload := map[string]interface{}{
+			"host":    h.display,
+			"port":    port,
+			"error":   err.Error(),
+			"tcp_seq": idx,
+		}
+		a.emitJSON("tcpTimeout", payload)
+		return
+	}
+	if h.opts.quiet {
+		return
+	}
+	a.withStdout(func() {
+		fmt.Printf("%s : tcp port %d failed: %v\n", h.display, port, err)
 	})
 }
 

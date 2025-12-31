@@ -9,6 +9,7 @@
 - **IPv4 and IPv6** – force either family with `-4`/`-6`, or scan both simultaneously.
 - **Progress and reporting** – progress bar (`-P`), periodic summaries (`-Q 5`), per-host outage tracking, JSON output (`-J/--json`), Netdata charts (`-N/--netdata`), and cumulative reporting.
 - **Traffic accounting** – enable the `-L/--traffic` flag to print total packets, sent/received bandwidth, and combined network load for the entire scan.
+- **TCP probe mode** – switch to `-y/--tcp-probe` (with optional `-Y PORT`) to detect hosts via TCP connects when ICMP is blocked or raw sockets are unavailable (e.g., Termux).
 - **Operational niceties** – quiet mode (`-q`), timestamped replies, TTL/TOS printing, reverse DNS, random payloads, and configurable retry/backoff policies.
 
 ## Installation
@@ -69,6 +70,8 @@ goping -N -Q 10,cumulative targets.txt
 | `-J`, `--json` | Emit structured JSON events instead of text. |
 | `-N`, `--netdata` | Produce Netdata charts compatible with the stock fping collector. |
 | `-L`, `--traffic` | Show total sent/received packets and Mbps for the whole scan. |
+| `-y`, `--tcp-probe` | Use TCP connect probes instead of ICMP. |
+| `-Y`, `--tcp-port=PORT` | TCP probe port (default 80). |
 | `-Q`, `--squiet SEC[,cumulative]` | Print periodic interval summaries. |
 | `-S`, `--src` | Force a specific source IP. |
 | `-t`, `--timeout` / `-r`, `--retry` | Control probe timeout and retry counts. |

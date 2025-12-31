@@ -26,6 +26,8 @@ func printUsage() {
 	fmt.Println("  -i, --interval=MSEC  Global interval between packets (default 10ms)")
 	fmt.Println("  -l, --loop           Loop sending pings indefinitely")
 	fmt.Println("  -L, --traffic        Show traffic statistics for the whole scan")
+	fmt.Println("  -y, --tcp-probe      Use TCP connect probes instead of ICMP")
+	fmt.Println("  -Y, --tcp-port=PORT  TCP probe port (default 80)")
 	fmt.Println("  -m, --all            Ping all addresses returned for a host")
 	fmt.Println("  -n, --name           Resolve numeric targets to hostnames")
 	fmt.Println("  -o, --outage         Print outage counters")

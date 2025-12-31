@@ -40,16 +40,9 @@ func generateFromSpec(spec *generateSpec, ipv4Only, ipv6Only bool) ([]string, er
 			return nil, fmt.Errorf("generate limit exceeded (%d)", maxGeneratedTargets)
 		}
 		start := spec.cidr.Masked().Addr()
-		skipNetwork, skipBroadcast := skipIPv4EdgeAddrs(*spec.cidr)
-		var broadcast netip.Addr
-		if skipBroadcast {
-			broadcast, _ = broadcastAddr(*spec.cidr)
-		}
+		broadcast, hasBroadcast := broadcastAddr(*spec.cidr)
 		for ip := start; spec.cidr.Contains(ip); ip = incrementAddr(ip) {
-			if skipNetwork && ip == start {
-				continue
-			}
-			if skipBroadcast && ip == broadcast {
+			if hasBroadcast && ip == broadcast {
 				continue
 			}
 			if ipv4Only && !ip.Is4() {
@@ -122,17 +115,6 @@ func incrementAddr(addr netip.Addr) netip.Addr {
 		}
 	}
 	return netip.AddrFrom16(bytes)
-}
-
-func skipIPv4EdgeAddrs(prefix netip.Prefix) (bool, bool) {
-	if !prefix.Addr().Is4() {
-		return false, false
-	}
-	ones := prefix.Bits()
-	if ones <= 0 || ones >= 32 {
-		return false, false
-	}
-	return true, true
 }
 
 func broadcastAddr(prefix netip.Prefix) (netip.Addr, bool) {

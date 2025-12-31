@@ -19,6 +19,7 @@ const (
 	defaultSeqmapTimeout         = 10 * time.Second
 	maxGeneratedTargets          = 131072
 	defaultBackoff       float64 = 1.5
+	defaultTCPPort               = 80
 )
 
 type options struct {
@@ -76,6 +77,8 @@ type options struct {
 	targetFileIsStd bool
 	outFile         string
 	locale          string
+	tcpProbe        bool
+	tcpPort         int
 }
 
 type generateSpec struct {
@@ -97,6 +100,7 @@ func defaultOptions() *options {
 		seqmapTimeout:   defaultSeqmapTimeout,
 		timestampFormat: "ctime",
 		locale:          detectSystemLocale(),
+		tcpPort:         defaultTCPPort,
 	}
 }
 
@@ -173,7 +177,7 @@ func needsValue(name string) bool {
 	switch name {
 	case "size", "backoff", "count", "vcount", "timestamp-format", "file", "ttl", "interval",
 		"iface", "fwmark", "period", "squiet", "retry", "src", "timeout",
-		"reachable", "fast-reachable", "seqmap-timeout":
+		"reachable", "fast-reachable", "seqmap-timeout", "tcp-port":
 		return true
 	}
 	return false
@@ -282,6 +286,10 @@ func applyLongOption(opts *options, name, val string) error {
 		opts.printTTL = true
 	case "print-tos":
 		opts.printTOS = true
+	case "tcp-probe":
+		opts.tcpProbe = true
+	case "tcp-port":
+		return setInt(val, &opts.tcpPort)
 	default:
 		return fmt.Errorf("unknown option --%s", name)
 	}
@@ -481,6 +489,17 @@ func parseShortBundle(opts *options, args []string, idx *int) error {
 			}
 			pos = newPos
 			if err := setInt(val, &opts.fastReachable); err != nil {
+				return err
+			}
+		case 'y':
+			opts.tcpProbe = true
+		case 'Y':
+			val, newPos, err := takeValue(arg, args, idx, pos)
+			if err != nil {
+				return err
+			}
+			pos = newPos
+			if err := setInt(val, &opts.tcpPort); err != nil {
 				return err
 			}
 		default:
