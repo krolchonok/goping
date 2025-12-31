@@ -39,7 +39,19 @@ func generateFromSpec(spec *generateSpec, ipv4Only, ipv6Only bool) ([]string, er
 		if count, ok := prefixCount(*spec.cidr); ok && count > maxGeneratedTargets {
 			return nil, fmt.Errorf("generate limit exceeded (%d)", maxGeneratedTargets)
 		}
-		for ip := spec.cidr.Addr(); spec.cidr.Contains(ip); ip = incrementAddr(ip) {
+		start := spec.cidr.Masked().Addr()
+		skipNetwork, skipBroadcast := skipIPv4EdgeAddrs(*spec.cidr)
+		var broadcast netip.Addr
+		if skipBroadcast {
+			broadcast, _ = broadcastAddr(*spec.cidr)
+		}
+		for ip := start; spec.cidr.Contains(ip); ip = incrementAddr(ip) {
+			if skipNetwork && ip == start {
+				continue
+			}
+			if skipBroadcast && ip == broadcast {
+				continue
+			}
 			if ipv4Only && !ip.Is4() {
 				continue
 			}
@@ -110,6 +122,47 @@ func incrementAddr(addr netip.Addr) netip.Addr {
 		}
 	}
 	return netip.AddrFrom16(bytes)
+}
+
+func skipIPv4EdgeAddrs(prefix netip.Prefix) (bool, bool) {
+	if !prefix.Addr().Is4() {
+		return false, false
+	}
+	ones := prefix.Bits()
+	if ones <= 0 || ones >= 32 {
+		return false, false
+	}
+	return true, true
+}
+
+func broadcastAddr(prefix netip.Prefix) (netip.Addr, bool) {
+	if !prefix.Addr().Is4() {
+		return netip.Addr{}, false
+	}
+	ones := prefix.Bits()
+	if ones <= 0 || ones >= 32 {
+		return netip.Addr{}, false
+	}
+	network := prefix.Masked().Addr()
+	base := addr4ToUint32(network)
+	hostBits := 32 - ones
+	mask := uint32(1<<hostBits) - 1
+	last := base | mask
+	return addrFromUint32(last), true
+}
+
+func addr4ToUint32(addr netip.Addr) uint32 {
+	b := addr.As4()
+	return uint32(b[0])<<24 | uint32(b[1])<<16 | uint32(b[2])<<8 | uint32(b[3])
+}
+
+func addrFromUint32(v uint32) netip.Addr {
+	return netip.AddrFrom4([4]byte{
+		byte(v >> 24),
+		byte(v >> 16),
+		byte(v >> 8),
+		byte(v),
+	})
 }
 
 func resolveTargets(targets []string, opts *options) ([]*host, error) {
