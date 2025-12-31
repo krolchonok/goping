@@ -1,0 +1,96 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  BIN_NAME: goping
+  GO_VERSION: "1.24"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            archive: tar.gz
+            ext: ""
+          - goos: linux
+            goarch: arm64
+            archive: tar.gz
+            ext: ""
+          - goos: linux
+            goarch: arm
+            goarm: "7"
+            archive: tar.gz
+            ext: ""
+          - goos: windows
+            goarch: amd64
+            archive: zip
+            ext: ".exe"
+          - goos: windows
+            goarch: arm64
+            archive: zip
+            ext: ".exe"
+          - goos: darwin
+            goarch: amd64
+            archive: tar.gz
+            ext: ""
+          - goos: darwin
+            goarch: arm64
+            archive: tar.gz
+            ext: ""
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Build binary
+        run: |
+          mkdir -p dist
+          OUTPUT="${{ env.BIN_NAME }}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          if [ -n "${{ matrix.goarm }}" ]; then
+            export GOARM="${{ matrix.goarm }}"
+            OUTPUT="${OUTPUT}v${{ matrix.goarm }}"
+          fi
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -o "${OUTPUT}${{ matrix.ext }}" .
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            zip "dist/${OUTPUT}.zip" "${OUTPUT}${{ matrix.ext }}"
+            rm "${OUTPUT}${{ matrix.ext }}"
+          else
+            tar -czf "dist/${OUTPUT}.tar.gz" "${OUTPUT}${{ matrix.ext }}"
+            rm "${OUTPUT}${{ matrix.ext }}"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+
+  release:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
